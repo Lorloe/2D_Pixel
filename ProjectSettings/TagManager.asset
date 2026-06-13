@@ -1,0 +1,70 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!78 &1
+TagManager:
+  serializedVersion: 3
+  tags:
+  - Throwable
+  layers:
+  - Default
+  - TransparentFX
+  - Ignore Raycast
+  - 
+  - Water
+  - UI
+  - Player
+  - Ladder
+  - Background
+  - Foreground
+  - Outline
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  m_SortingLayers:
+  - name: Default
+    uniqueID: 0
+    locked: 0
+  - name: Background
+    uniqueID: 639482239
+    locked: 0
+  - name: Forground
+    uniqueID: 1743010731
+    locked: 0
+  - name: Outline
+    uniqueID: 3889305143
+    locked: 0
+  - name: Throwable
+    uniqueID: 3999323059
+    locked: 0
+  - name: Ladder
+    uniqueID: 525583689
+    locked: 0
+  - name: Decoration
+    uniqueID: 3946853883
+    locked: 0
+  - name: Player
+    uniqueID: 687761765
+    locked: 0
+  - name: Cursor
+    uniqueID: 2820936341
+    locked: 0
+  m_RenderingLayers:
+  - Default
