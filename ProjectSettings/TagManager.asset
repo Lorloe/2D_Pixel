@@ -17,9 +17,9 @@ TagManager:
   - Background
   - Foreground
   - Outline
-  - 
-  - 
-  - 
+  - Flag
+  - Door/Window
+  - Boo
   - 
   - 
   - 
@@ -51,14 +51,26 @@ TagManager:
   - name: Outline
     uniqueID: 3889305143
     locked: 0
+  - name: Door/Window
+    uniqueID: 1406134461
+    locked: 0
+  - name: Flag
+    uniqueID: 1344273251
+    locked: 0
   - name: Throwable
     uniqueID: 3999323059
     locked: 0
   - name: Ladder
     uniqueID: 525583689
     locked: 0
+  - name: Vent
+    uniqueID: 1176654879
+    locked: 0
   - name: Decoration
     uniqueID: 3946853883
+    locked: 0
+  - name: Effect
+    uniqueID: 3531884465
     locked: 0
   - name: Player
     uniqueID: 687761765
