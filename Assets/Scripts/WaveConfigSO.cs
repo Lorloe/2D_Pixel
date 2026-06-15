@@ -5,11 +5,11 @@ public class WaveConfigSO : ScriptableObject
 {
     [SerializeField] private Transform _pathPrefab;
     [SerializeField] private float _heroMoveSpeed = 5f;
-    [SerializeField] private GameObject[] _enemyPrefabs;
-    [SerializeField] private float _timeBetweenEnemySpawns = 1f;
-    [SerializeField] private float _enemySpawnVariance = 0f;
-    [SerializeField] private float _minimumSpawnTime = 0.2f;
-    [SerializeField] private float _timeBetweenWaves = 0f;
+    [SerializeField] private GameObject[] _heroPrefabs;
+    // [SerializeField] private float _timeBetweenEnemySpawns = 1f;
+    // [SerializeField] private float _enemySpawnVariance = 0f;
+    // [SerializeField] private float _minimumSpawnTime = 0.2f;
+    // [SerializeField] private float _timeBetweenWaves = 0f;
 
     public Transform GetStartingWaypoint()
     {
@@ -35,29 +35,29 @@ public class WaveConfigSO : ScriptableObject
         return waypoints;
     }
 
-    public int GetEnemyCount()
+    public int GetHeroCount()
     {
-        return _enemyPrefabs.Length;
+        return _heroPrefabs.Length;
     }
 
-    public GameObject GetEnemyPrefab(int index)
+    public GameObject GetHeroPrefab(int index)
     {
-        return _enemyPrefabs[index];
+        return _heroPrefabs[index];
     }
 
-    public float GetRandomEnemySpawnTime()
-    {
-        float spawnTime = Random.Range(
-            _timeBetweenEnemySpawns - _enemySpawnVariance, 
-            _timeBetweenEnemySpawns + _enemySpawnVariance
-            );
-        spawnTime = Mathf.Clamp(spawnTime, _minimumSpawnTime, float.MaxValue);
+    // public float GetRandomEnemySpawnTime()
+    // {
+    //     float spawnTime = Random.Range(
+    //         _timeBetweenEnemySpawns - _enemySpawnVariance, 
+    //         _timeBetweenEnemySpawns + _enemySpawnVariance
+    //         );
+    //     spawnTime = Mathf.Clamp(spawnTime, _minimumSpawnTime, float.MaxValue);
 
-        return spawnTime;
-    }
+    //     return spawnTime;
+    // }
 
-    public float GetTimeBetweenWaves()
-    {
-        return _timeBetweenWaves;
-    }
+    // public float GetTimeBetweenWaves()
+    // {
+    //     return _timeBetweenWaves;
+    // }
 }

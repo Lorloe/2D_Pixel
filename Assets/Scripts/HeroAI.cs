@@ -14,6 +14,11 @@ public class HeroAI : MonoBehaviour
     [SerializeField] private float _attackDuration = 0.45f;
     [SerializeField] private float _attackHitDistance = 1.2f;
 
+    [Header("Hit Reactions")]
+    [SerializeField] private LayerMask _damageLayers;
+    [SerializeField] private bool _destroyOnHit = true;
+    [SerializeField] private float _destroyDelay = 0.05f;
+
     [Header("Sprites")]
     [SerializeField] private Sprite _idleSprite;
     [SerializeField] private Sprite _attackSprite;
@@ -24,13 +29,15 @@ public class HeroAI : MonoBehaviour
     private HeroPathfinding _pathfinding;
     private Rigidbody2D _rb;
     private SpriteRenderer _spriteRenderer;
+    private Collider2D _collider2D;
     private Coroutine _attackRoutine;
+    private bool _isDead;
 
     private enum State
     {
         Patrol,
         Attack,
-        GameOver
+        Dead
     }
 
     private State _currentState = State.Patrol;
@@ -40,6 +47,7 @@ public class HeroAI : MonoBehaviour
         _pathfinding = GetComponent<HeroPathfinding>();
         _rb = GetComponent<Rigidbody2D>();
         _spriteRenderer = GetComponent<SpriteRenderer>();
+        _collider2D = GetComponent<Collider2D>();
     }
 
     private void Start()
@@ -84,7 +92,7 @@ public class HeroAI : MonoBehaviour
         }
 
         Vector2 direction = (_playerTarget.position - transform.position).normalized;
-        _rb.linearVelocity = direction * _attackDashSpeed;
+        MoveBy(direction * _attackDashSpeed * Time.fixedDeltaTime);
 
         if (Vector2.Distance(transform.position, _playerTarget.position) <= _attackHitDistance)
         {
@@ -164,12 +172,12 @@ public class HeroAI : MonoBehaviour
 
     private void FinishGameOver()
     {
-        if (_currentState == State.GameOver)
+        if (_currentState == State.Dead)
         {
             return;
         }
 
-        _currentState = State.GameOver;
+        _currentState = State.Dead;
 
         if (_attackRoutine != null)
         {
@@ -180,6 +188,11 @@ public class HeroAI : MonoBehaviour
         if (_rb != null)
         {
             _rb.linearVelocity = Vector2.zero;
+        }
+
+        if (_rb == null)
+        {
+            // no-op, transform movement is used instead of physics velocity
         }
 
         _pathfinding?.StopMoving();
@@ -201,6 +214,78 @@ public class HeroAI : MonoBehaviour
         {
             _spriteRenderer.sprite = _idleSprite;
         }
+    }
+
+    private void OnTriggerEnter2D(Collider2D other)
+    {
+        TryHandleIncomingHit(other.gameObject, other.tag, other.gameObject.layer);
+    }
+
+    private void OnCollisionEnter2D(Collision2D collision)
+    {
+        TryHandleIncomingHit(collision.gameObject, collision.collider.tag, collision.gameObject.layer);
+    }
+
+    private void TryHandleIncomingHit(GameObject otherObject, string otherTag, int otherLayer)
+    {
+        if (_isDead)
+        {
+            return;
+        }
+
+        bool hitByThrowable = otherTag == "Throwable";
+        bool hitByBombBox = otherTag == "BombBox";
+        bool hitByDamageLayer = (_damageLayers.value & (1 << otherLayer)) != 0;
+
+        if (hitByThrowable || hitByBombBox || hitByDamageLayer)
+        {
+            HandleIncomingHit(otherObject);
+        }
+    }
+
+    private void HandleIncomingHit(GameObject source)
+    {
+        if (_isDead)
+        {
+            return;
+        }
+
+        _isDead = true;
+        _currentState = State.Dead;
+
+        if (_attackRoutine != null)
+        {
+            StopCoroutine(_attackRoutine);
+            _attackRoutine = null;
+        }
+
+        _pathfinding?.StopMoving();
+
+        if (_rb != null)
+        {
+            _rb.linearVelocity = Vector2.zero;
+        }
+
+        if (_collider2D != null)
+        {
+            _collider2D.enabled = false;
+        }
+
+        if (_destroyOnHit)
+        {
+            Destroy(gameObject, _destroyDelay);
+        }
+    }
+
+    private void MoveBy(Vector2 delta)
+    {
+        if (_rb != null)
+        {
+            _rb.MovePosition(_rb.position + delta);
+            return;
+        }
+
+        transform.position += (Vector3)delta;
     }
 
     private void OnDrawGizmosSelected()

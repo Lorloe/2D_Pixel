@@ -3,6 +3,7 @@ using UnityEngine;
 [DisallowMultipleComponent]
 public class HeroWayPointSetup : MonoBehaviour
 {
+    [SerializeField] private WaveConfigSO _waveConfig;
     [SerializeField] private HeroPathfinding _pathfinding;
     [SerializeField] private Transform _pathRoot;
     [SerializeField] private bool _autoCollectChildren = true;
@@ -34,6 +35,13 @@ public class HeroWayPointSetup : MonoBehaviour
 
         if (_pathfinding == null)
         {
+            return;
+        }
+
+        if (_waveConfig != null)
+        {
+            _pathfinding.SetWaypoints(_waveConfig.GetWaypoints());
+            _pathfinding.SetMoveSpeed(_waveConfig.GetEnemyMoveSpeed());
             return;
         }
 

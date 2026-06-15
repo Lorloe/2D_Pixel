@@ -2,24 +2,11 @@ using UnityEngine;
 
 public class HeroPathfinding : MonoBehaviour
 {
-    [Header("Move")]
+    [Header("Path")]
     [SerializeField] private float _moveSpeed = 3.5f;
     [SerializeField] private float _arriveDistance = 0.12f;
-    [SerializeField] private float _horizontalTolerance = 0.12f;
-
-    [Header("Jump")]
-    [SerializeField] private float _jumpForce = 12f;
-    [SerializeField] private float _jumpTriggerHeight = 0.6f;
-
-    [Header("Climb")]
-    [SerializeField] private float _climbSpeed = 3.5f;
-    [SerializeField] private float _ladderHorizontalTolerance = 0.35f;
-    [SerializeField] private LayerMask _ladderLayer;
-
-    [Header("Ground Check")]
-    [SerializeField] private Transform _groundCheck;
-    [SerializeField] private float _groundCheckRadius = 0.15f;
-    [SerializeField] private LayerMask _groundLayer;
+    [SerializeField] private bool _loopPath = false;
+    [SerializeField] private bool _setColliderAsTrigger = true;
 
     [Header("Waypoints")]
     [SerializeField] private Transform[] _waypoints;
@@ -27,21 +14,18 @@ public class HeroPathfinding : MonoBehaviour
     private Rigidbody2D _rb;
     private SpriteRenderer _spriteRenderer;
     private Collider2D _collider2D;
-    private float _defaultGravityScale;
     private int _currentWaypointIndex;
     private bool _isMoving = true;
-    private bool _isClimbing;
-    private float _nextAllowedJumpTime;
-    private int _lastJumpWaypointIndex = -1;
 
-    public bool HasFinishedPath => _waypoints == null || _waypoints.Length == 0 || _currentWaypointIndex >= _waypoints.Length;
+    public bool HasFinishedPath => _waypoints == null || _waypoints.Length == 0 || (!_loopPath && _currentWaypointIndex >= _waypoints.Length);
 
     private void Awake()
     {
         _rb = GetComponent<Rigidbody2D>();
         _spriteRenderer = GetComponent<SpriteRenderer>();
         _collider2D = GetComponent<Collider2D>();
-        _defaultGravityScale = _rb != null ? _rb.gravityScale : 1f;
+
+        ConfigurePhysics();
         CacheWaypointsIfNeeded();
         WarnIfSetupLooksWrong();
     }
@@ -57,9 +41,34 @@ public class HeroPathfinding : MonoBehaviour
         FollowCurrentWaypoint();
     }
 
+    private void ConfigurePhysics()
+    {
+        if (_rb == null)
+        {
+            return;
+        }
+
+        _rb.bodyType = RigidbodyType2D.Kinematic;
+        _rb.gravityScale = 0f;
+        _rb.linearDamping = 0f;
+        _rb.angularDamping = 0f;
+        _rb.constraints = RigidbodyConstraints2D.FreezeRotation;
+    }
+
     private void FollowCurrentWaypoint()
     {
         if (_waypoints == null || _waypoints.Length == 0)
+        {
+            StopBody();
+            return;
+        }
+
+        if (_loopPath)
+        {
+            _currentWaypointIndex %= _waypoints.Length;
+        }
+
+        if (_currentWaypointIndex < 0 || _currentWaypointIndex >= _waypoints.Length)
         {
             StopBody();
             return;
@@ -72,107 +81,21 @@ public class HeroPathfinding : MonoBehaviour
             return;
         }
 
-        Vector2 currentPosition = _rb.position;
+        Vector2 currentPosition = GetCurrentPosition();
         Vector2 targetPosition = currentWaypoint.position;
-        Vector2 delta = targetPosition - currentPosition;
+        Vector2 nextPosition = Vector2.MoveTowards(currentPosition, targetPosition, _moveSpeed * Time.fixedDeltaTime);
 
-        if (Vector2.Distance(currentPosition, targetPosition) <= _arriveDistance)
+        SetCurrentPosition(nextPosition);
+        HandleFlip(targetPosition.x - currentPosition.x);
+
+        if (Vector2.Distance(nextPosition, targetPosition) <= _arriveDistance)
         {
             _currentWaypointIndex++;
-            _lastJumpWaypointIndex = -1;
-            ExitClimbMode();
-            return;
-        }
 
-        bool grounded = IsGrounded();
-        bool touchingLadder = IsTouchingLadder();
-        bool needsVerticalMove = delta.y > _jumpTriggerHeight;
-        bool onSameHorizontalBand = Mathf.Abs(delta.x) <= _ladderHorizontalTolerance;
-
-        if (touchingLadder && onSameHorizontalBand && Mathf.Abs(delta.y) > _arriveDistance)
-        {
-            EnterClimbMode();
-            _rb.linearVelocity = new Vector2(0f, Mathf.Sign(delta.y) * _climbSpeed);
-        }
-        else
-        {
-            ExitClimbMode();
-
-            float horizontalDirection = Mathf.Abs(delta.x) <= _horizontalTolerance ? 0f : Mathf.Sign(delta.x);
-            float verticalVelocity = grounded ? 0f : _rb.linearVelocity.y;
-            bool shouldJump = needsVerticalMove
-                && grounded
-                && Time.time >= _nextAllowedJumpTime
-                && _lastJumpWaypointIndex != _currentWaypointIndex;
-
-            if (shouldJump)
+            if (_loopPath && _waypoints.Length > 0 && _currentWaypointIndex >= _waypoints.Length)
             {
-                verticalVelocity = _jumpForce;
-                _nextAllowedJumpTime = Time.time + 0.35f;
-                _lastJumpWaypointIndex = _currentWaypointIndex;
+                _currentWaypointIndex = 0;
             }
-
-            _rb.linearVelocity = new Vector2(horizontalDirection * _moveSpeed, verticalVelocity);
-        }
-
-        HandleFlip(delta.x);
-    }
-
-    private bool IsGrounded()
-    {
-        if (_collider2D != null && _groundLayer.value != 0)
-        {
-            return _collider2D.IsTouchingLayers(_groundLayer);
-        }
-
-        if (_groundCheck != null && _groundCheck.IsChildOf(transform) && _groundLayer.value != 0)
-        {
-            return Physics2D.OverlapCircle(_groundCheck.position, _groundCheckRadius, _groundLayer);
-        }
-
-        return Mathf.Abs(_rb.linearVelocity.y) < 0.05f;
-    }
-
-    private bool IsTouchingLadder()
-    {
-        if (_collider2D == null)
-        {
-            return false;
-        }
-
-        return _collider2D.IsTouchingLayers(_ladderLayer);
-    }
-
-    private void EnterClimbMode()
-    {
-        if (_isClimbing)
-        {
-            return;
-        }
-
-        _isClimbing = true;
-        _rb.gravityScale = 0f;
-        _rb.linearVelocity = new Vector2(0f, 0f);
-    }
-
-    private void ExitClimbMode()
-    {
-        if (!_isClimbing)
-        {
-            return;
-        }
-
-        _isClimbing = false;
-        _rb.gravityScale = _defaultGravityScale;
-    }
-
-    private void StopBody()
-    {
-        ExitClimbMode();
-
-        if (_rb != null)
-        {
-            _rb.linearVelocity = Vector2.zero;
         }
     }
 
@@ -215,12 +138,15 @@ public class HeroPathfinding : MonoBehaviour
         _currentWaypointIndex = 0;
     }
 
+    public void SetMoveSpeed(float moveSpeed)
+    {
+        _moveSpeed = moveSpeed;
+    }
+
     public void ResetPath()
     {
         _currentWaypointIndex = 0;
         _isMoving = true;
-        _lastJumpWaypointIndex = -1;
-        _nextAllowedJumpTime = 0f;
     }
 
     public void StopMoving()
@@ -234,22 +160,40 @@ public class HeroPathfinding : MonoBehaviour
         _isMoving = true;
     }
 
-    private void OnDrawGizmosSelected()
+    private void StopBody()
     {
-        if (_groundCheck == null)
+        if (_rb != null)
         {
+            _rb.linearVelocity = Vector2.zero;
+        }
+    }
+
+    private Vector2 GetCurrentPosition()
+    {
+        if (_rb != null)
+        {
+            return _rb.position;
+        }
+
+        return transform.position;
+    }
+
+    private void SetCurrentPosition(Vector2 position)
+    {
+        if (_rb != null)
+        {
+            _rb.MovePosition(position);
             return;
         }
 
-        Gizmos.color = Color.yellow;
-        Gizmos.DrawWireSphere(_groundCheck.position, _groundCheckRadius);
+        transform.position = position;
     }
 
     private void WarnIfSetupLooksWrong()
     {
-        if (_groundCheck != null && !_groundCheck.IsChildOf(transform))
+        if (_collider2D != null && _setColliderAsTrigger && !_collider2D.isTrigger)
         {
-            Debug.LogWarning($"{name}: _groundCheck is not a child of the hero. Falling back to collider-based grounded check.", this);
+            _collider2D.isTrigger = true;
         }
 
         if (_waypoints == null || _waypoints.Length == 0)
