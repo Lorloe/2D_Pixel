@@ -1,55 +1,211 @@
+using System.Collections;
 using UnityEngine;
 
 public class HeroAI : MonoBehaviour
 {
+    [Header("Detection")]
     [SerializeField] private float _detectionRange = 15f;
-    [SerializeField] private float _attackRange = 15f;
-    [SerializeField] private bool _stopMovingWhileAttack = false;
+    [SerializeField] private float _sameFloorTolerance = 1.25f;
+    [SerializeField] private LayerMask _visionBlockers;
+    [SerializeField] private Transform _playerTarget;
 
-    private bool _canAttack = true;
+    [Header("Attack")]
+    [SerializeField] private float _attackDashSpeed = 18f;
+    [SerializeField] private float _attackDuration = 0.45f;
+    [SerializeField] private float _attackHitDistance = 1.2f;
 
-    private enum State 
+    [Header("Sprites")]
+    [SerializeField] private Sprite _idleSprite;
+    [SerializeField] private Sprite _attackSprite;
+
+    [Header("Game Over")]
+    [SerializeField] private GameManager _gameManager;
+
+    private HeroPathfinding _pathfinding;
+    private Rigidbody2D _rb;
+    private SpriteRenderer _spriteRenderer;
+    private Coroutine _attackRoutine;
+
+    private enum State
     {
-        Patrolling,
-        Attacking
+        Patrol,
+        Attack,
+        GameOver
     }
 
-    private State _currentState = State.Patrolling;
-    private HeroPathfinding _pathfinding;
+    private State _currentState = State.Patrol;
 
     private void Awake()
     {
         _pathfinding = GetComponent<HeroPathfinding>();
+        _rb = GetComponent<Rigidbody2D>();
+        _spriteRenderer = GetComponent<SpriteRenderer>();
+    }
+
+    private void Start()
+    {
+        if (_playerTarget == null && PlayerController.Instance != null)
+        {
+            _playerTarget = PlayerController.Instance.transform;
+        }
+
+        if (_gameManager == null)
+        {
+            _gameManager = UnityEngine.Object.FindFirstObjectByType<GameManager>();
+        }
+
+        SetIdleVisual();
     }
 
     private void Update()
     {
-        MovementStateControl();
-    }
-    
-    private void MovementStateControl()
-    {
-        switch (_currentState)
+        if (_currentState != State.Patrol)
         {
-            case State.Patrolling:
-                Patroling();
-                break;
-            case State.Attacking:
-                Attacking();
-                break;
+            return;
+        }
+
+        if (CanAttackPlayer())
+        {
+            StartAttack();
         }
     }
 
-    private void Patroling()
+    private void FixedUpdate()
     {
-        
+        if (_currentState != State.Attack)
+        {
+            return;
+        }
+
+        if (_playerTarget == null)
+        {
+            FinishGameOver();
+            return;
+        }
+
+        Vector2 direction = (_playerTarget.position - transform.position).normalized;
+        _rb.linearVelocity = direction * _attackDashSpeed;
+
+        if (Vector2.Distance(transform.position, _playerTarget.position) <= _attackHitDistance)
+        {
+            FinishGameOver();
+        }
     }
 
-    private void Attacking()
+    private bool CanAttackPlayer()
     {
-        if (_attackRange != 0 && _canAttack)
+        if (_playerTarget == null)
         {
-            _canAttack = false;
+            return false;
         }
+
+        Vector2 heroPosition = transform.position;
+        Vector2 playerPosition = _playerTarget.position;
+        float distance = Vector2.Distance(heroPosition, playerPosition);
+        float verticalGap = Mathf.Abs(heroPosition.y - playerPosition.y);
+
+        if (distance > _detectionRange)
+        {
+            return false;
+        }
+
+        if (verticalGap > _sameFloorTolerance)
+        {
+            return false;
+        }
+
+        return HasLineOfSight(heroPosition, playerPosition);
+    }
+
+    private bool HasLineOfSight(Vector2 origin, Vector2 target)
+    {
+        RaycastHit2D hit = Physics2D.Linecast(origin, target, _visionBlockers);
+        return hit.collider == null;
+    }
+
+    private void StartAttack()
+    {
+        if (_currentState != State.Patrol)
+        {
+            return;
+        }
+
+        _currentState = State.Attack;
+        _pathfinding?.StopMoving();
+
+        if (_spriteRenderer != null && _attackSprite != null)
+        {
+            _spriteRenderer.sprite = _attackSprite;
+        }
+
+        if (_attackRoutine != null)
+        {
+            StopCoroutine(_attackRoutine);
+        }
+
+        _attackRoutine = StartCoroutine(AttackTimeoutRoutine());
+    }
+
+    private IEnumerator AttackTimeoutRoutine()
+    {
+        float elapsed = 0f;
+
+        while (elapsed < _attackDuration && _currentState == State.Attack)
+        {
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        if (_currentState == State.Attack)
+        {
+            FinishGameOver();
+        }
+    }
+
+    private void FinishGameOver()
+    {
+        if (_currentState == State.GameOver)
+        {
+            return;
+        }
+
+        _currentState = State.GameOver;
+
+        if (_attackRoutine != null)
+        {
+            StopCoroutine(_attackRoutine);
+            _attackRoutine = null;
+        }
+
+        if (_rb != null)
+        {
+            _rb.linearVelocity = Vector2.zero;
+        }
+
+        _pathfinding?.StopMoving();
+
+        if (_gameManager != null)
+        {
+            _gameManager.TriggerGameOver();
+        }
+        else
+        {
+            Debug.Log("Game Over");
+            Time.timeScale = 0f;
+        }
+    }
+
+    private void SetIdleVisual()
+    {
+        if (_spriteRenderer != null && _idleSprite != null)
+        {
+            _spriteRenderer.sprite = _idleSprite;
+        }
+    }
+
+    private void OnDrawGizmosSelected()
+    {
+        Gizmos.color = Color.red;
+        Gizmos.DrawWireSphere(transform.position, _detectionRange);
     }
 }

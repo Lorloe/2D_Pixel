@@ -19,8 +19,8 @@ TagManager:
   - Outline
   - Flag
   - Door/Window
-  - Boo
-  - 
+  - Box
+  - Hero
   - 
   - 
   - 
@@ -71,6 +71,9 @@ TagManager:
     locked: 0
   - name: Effect
     uniqueID: 3531884465
+    locked: 0
+  - name: Hero
+    uniqueID: 3029998693
     locked: 0
   - name: Player
     uniqueID: 687761765
