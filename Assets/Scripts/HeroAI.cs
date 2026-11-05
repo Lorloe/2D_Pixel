@@ -92,7 +92,7 @@ public class HeroAI : MonoBehaviour
         }
 
         Vector2 direction = (_playerTarget.position - transform.position).normalized;
-        MoveBy(direction * _attackDashSpeed * Time.fixedDeltaTime);
+        _rb.linearVelocity = direction * _attackDashSpeed;
 
         if (Vector2.Distance(transform.position, _playerTarget.position) <= _attackHitDistance)
         {
@@ -190,11 +190,6 @@ public class HeroAI : MonoBehaviour
             _rb.linearVelocity = Vector2.zero;
         }
 
-        if (_rb == null)
-        {
-            // no-op, transform movement is used instead of physics velocity
-        }
-
         _pathfinding?.StopMoving();
 
         if (_gameManager != null)
@@ -275,17 +270,6 @@ public class HeroAI : MonoBehaviour
         {
             Destroy(gameObject, _destroyDelay);
         }
-    }
-
-    private void MoveBy(Vector2 delta)
-    {
-        if (_rb != null)
-        {
-            _rb.MovePosition(_rb.position + delta);
-            return;
-        }
-
-        transform.position += (Vector3)delta;
     }
 
     private void OnDrawGizmosSelected()

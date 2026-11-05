@@ -2,32 +2,50 @@ using UnityEngine;
 
 public class HeroPathfinding : MonoBehaviour
 {
-    [Header("Path")]
+    [Header("Move")]
     [SerializeField] private float _moveSpeed = 3.5f;
     [SerializeField] private float _arriveDistance = 0.12f;
-    [SerializeField] private bool _loopPath = false;
-    [SerializeField] private bool _setColliderAsTrigger = true;
+    [SerializeField] private float _horizontalTolerance = 0.12f;
+
+    [Header("Jump")]
+    [SerializeField] private float _jumpForce = 12f;
+    [SerializeField] private float _jumpCooldown = 0.35f;
+    [SerializeField] private float _jumpTriggerDistance = 0.45f;
+
+    [Header("Climb")]
+    [SerializeField] private float _climbSpeed = 3.5f;
+    [SerializeField] private float _ladderHorizontalTolerance = 0.35f;
+    [SerializeField] private LayerMask _ladderLayer;
+
+    [Header("Ground Check")]
+    [SerializeField] private Transform _groundCheck;
+    [SerializeField] private float _groundCheckRadius = 0.15f;
+    [SerializeField] private LayerMask _groundLayer;
 
     [Header("Waypoints")]
-    [SerializeField] private Transform[] _waypoints;
+    [SerializeField] private HeroWaypoint[] _waypoints;
 
     private Rigidbody2D _rb;
     private SpriteRenderer _spriteRenderer;
     private Collider2D _collider2D;
+    private float _defaultGravityScale;
     private int _currentWaypointIndex;
     private bool _isMoving = true;
+    private bool _isClimbing;
+    private float _nextAllowedJumpTime;
+    private int _lastJumpWaypointIndex = -1;
 
-    public bool HasFinishedPath => _waypoints == null || _waypoints.Length == 0 || (!_loopPath && _currentWaypointIndex >= _waypoints.Length);
+    public bool HasFinishedPath => _waypoints == null || _waypoints.Length == 0 || _currentWaypointIndex >= _waypoints.Length;
 
     private void Awake()
     {
         _rb = GetComponent<Rigidbody2D>();
         _spriteRenderer = GetComponent<SpriteRenderer>();
         _collider2D = GetComponent<Collider2D>();
+        _defaultGravityScale = _rb != null ? _rb.gravityScale : 1f;
 
         ConfigurePhysics();
         CacheWaypointsIfNeeded();
-        WarnIfSetupLooksWrong();
     }
 
     private void FixedUpdate()
@@ -48,8 +66,8 @@ public class HeroPathfinding : MonoBehaviour
             return;
         }
 
-        _rb.bodyType = RigidbodyType2D.Kinematic;
-        _rb.gravityScale = 0f;
+        _rb.bodyType = RigidbodyType2D.Dynamic;
+        _rb.gravityScale = _defaultGravityScale;
         _rb.linearDamping = 0f;
         _rb.angularDamping = 0f;
         _rb.constraints = RigidbodyConstraints2D.FreezeRotation;
@@ -63,39 +81,185 @@ public class HeroPathfinding : MonoBehaviour
             return;
         }
 
-        if (_loopPath)
-        {
-            _currentWaypointIndex %= _waypoints.Length;
-        }
-
         if (_currentWaypointIndex < 0 || _currentWaypointIndex >= _waypoints.Length)
         {
             StopBody();
             return;
         }
 
-        Transform currentWaypoint = _waypoints[_currentWaypointIndex];
+        HeroWaypoint currentWaypoint = _waypoints[_currentWaypointIndex];
         if (currentWaypoint == null)
         {
             _currentWaypointIndex++;
             return;
         }
 
-        Vector2 currentPosition = GetCurrentPosition();
-        Vector2 targetPosition = currentWaypoint.position;
-        Vector2 nextPosition = Vector2.MoveTowards(currentPosition, targetPosition, _moveSpeed * Time.fixedDeltaTime);
+        Vector2 currentPosition = _rb.position;
+        Vector2 targetPosition = currentWaypoint.transform.position;
+        Vector2 delta = targetPosition - currentPosition;
+        HeroWaypoint nextWaypoint = GetWaypoint(_currentWaypointIndex + 1);
 
-        SetCurrentPosition(nextPosition);
-        HandleFlip(targetPosition.x - currentPosition.x);
-
-        if (Vector2.Distance(nextPosition, targetPosition) <= _arriveDistance)
+        if (Vector2.Distance(currentPosition, targetPosition) <= _arriveDistance)
         {
             _currentWaypointIndex++;
+            _lastJumpWaypointIndex = -1;
+            ExitClimbMode();
+            return;
+        }
 
-            if (_loopPath && _waypoints.Length > 0 && _currentWaypointIndex >= _waypoints.Length)
-            {
-                _currentWaypointIndex = 0;
-            }
+        switch (currentWaypoint.Type)
+        {
+            case HeroWaypointType.Climb:
+                HandleClimbWaypoint(delta);
+                break;
+
+            case HeroWaypointType.Jump:
+                HandleJumpWaypoint(delta);
+                break;
+
+            case HeroWaypointType.ExitLadder:
+                HandleExitLadderWaypoint(delta);
+                break;
+
+            default:
+                HandleWalkWaypoint(delta, nextWaypoint);
+                break;
+        }
+
+        HandleFlip(delta.x);
+    }
+
+    private void HandleWalkWaypoint(Vector2 delta, HeroWaypoint nextWaypoint)
+    {
+        ExitClimbMode();
+
+        Vector2 targetPosition = nextWaypoint != null && nextWaypoint.Type == HeroWaypointType.Jump
+            ? nextWaypoint.transform.position
+            : new Vector2(_rb.position.x + delta.x, _rb.position.y + delta.y);
+
+        Vector2 lookAheadDelta = targetPosition - _rb.position;
+        float horizontalVelocity = Mathf.Abs(lookAheadDelta.x) <= _horizontalTolerance ? 0f : Mathf.Sign(lookAheadDelta.x) * _moveSpeed;
+        float verticalVelocity = _rb.linearVelocity.y;
+
+        if (nextWaypoint != null
+            && nextWaypoint.Type == HeroWaypointType.Jump
+            && IsGrounded()
+            && Mathf.Abs(lookAheadDelta.x) <= _jumpTriggerDistance
+            && Time.time >= _nextAllowedJumpTime
+            && _lastJumpWaypointIndex != _currentWaypointIndex + 1)
+        {
+            verticalVelocity = _jumpForce;
+            _nextAllowedJumpTime = Time.time + _jumpCooldown;
+            _lastJumpWaypointIndex = _currentWaypointIndex + 1;
+        }
+
+        _rb.linearVelocity = new Vector2(horizontalVelocity, verticalVelocity);
+    }
+
+    private void HandleJumpWaypoint(Vector2 delta)
+    {
+        ExitClimbMode();
+
+        bool grounded = IsGrounded();
+        bool atJumpPoint = Mathf.Abs(delta.x) <= _horizontalTolerance;
+        float horizontalVelocity = Mathf.Abs(delta.x) <= _horizontalTolerance ? 0f : Mathf.Sign(delta.x) * _moveSpeed;
+        float verticalVelocity = _rb.linearVelocity.y;
+
+        bool shouldJump = grounded
+            && atJumpPoint
+            && Time.time >= _nextAllowedJumpTime
+            && _lastJumpWaypointIndex != _currentWaypointIndex;
+
+        if (shouldJump)
+        {
+            verticalVelocity = _jumpForce;
+            _nextAllowedJumpTime = Time.time + _jumpCooldown;
+            _lastJumpWaypointIndex = _currentWaypointIndex;
+        }
+
+        _rb.linearVelocity = new Vector2(horizontalVelocity, verticalVelocity);
+    }
+
+    private void HandleClimbWaypoint(Vector2 delta)
+    {
+        bool touchingLadder = IsTouchingLadder();
+        bool alignedWithLadder = Mathf.Abs(delta.x) <= _ladderHorizontalTolerance;
+
+        if (touchingLadder && alignedWithLadder)
+        {
+            EnterClimbMode();
+            _rb.linearVelocity = new Vector2(0f, Mathf.Sign(delta.y) * _climbSpeed);
+            return;
+        }
+
+        ExitClimbMode();
+        float horizontalVelocity = Mathf.Abs(delta.x) <= _horizontalTolerance ? 0f : Mathf.Sign(delta.x) * _moveSpeed;
+        _rb.linearVelocity = new Vector2(horizontalVelocity, _rb.linearVelocity.y);
+    }
+
+    private void HandleExitLadderWaypoint(Vector2 delta)
+    {
+        ExitClimbMode();
+
+        float horizontalVelocity = Mathf.Abs(delta.x) <= _horizontalTolerance ? 0f : Mathf.Sign(delta.x) * _moveSpeed;
+        _rb.linearVelocity = new Vector2(horizontalVelocity, _rb.linearVelocity.y);
+    }
+
+    private bool IsGrounded()
+    {
+        if (_groundCheck != null && _groundLayer.value != 0)
+        {
+            return Physics2D.OverlapCircle(_groundCheck.position, _groundCheckRadius, _groundLayer);
+        }
+
+        if (_collider2D != null && _groundLayer.value != 0)
+        {
+            return _collider2D.IsTouchingLayers(_groundLayer);
+        }
+
+        return Mathf.Abs(_rb.linearVelocity.y) < 0.05f;
+    }
+
+    private bool IsTouchingLadder()
+    {
+        if (_collider2D == null)
+        {
+            return false;
+        }
+
+        return _collider2D.IsTouchingLayers(_ladderLayer);
+    }
+
+    private void EnterClimbMode()
+    {
+        if (_isClimbing)
+        {
+            return;
+        }
+
+        _isClimbing = true;
+        _rb.gravityScale = 0f;
+        _rb.linearVelocity = Vector2.zero;
+    }
+
+    private void ExitClimbMode()
+    {
+        if (!_isClimbing)
+        {
+            return;
+        }
+
+        _isClimbing = false;
+        _rb.gravityScale = _defaultGravityScale;
+    }
+
+    private void StopBody()
+    {
+        ExitClimbMode();
+
+        if (_rb != null)
+        {
+            _rb.linearVelocity = Vector2.zero;
         }
     }
 
@@ -124,15 +288,25 @@ public class HeroPathfinding : MonoBehaviour
         }
 
         int childCount = transform.childCount;
-        _waypoints = new Transform[childCount];
+        _waypoints = new HeroWaypoint[childCount];
 
         for (int i = 0; i < childCount; i++)
         {
-            _waypoints[i] = transform.GetChild(i);
+            _waypoints[i] = transform.GetChild(i).GetComponent<HeroWaypoint>();
         }
     }
 
-    public void SetWaypoints(Transform[] waypoints)
+    private HeroWaypoint GetWaypoint(int index)
+    {
+        if (_waypoints == null || index < 0 || index >= _waypoints.Length)
+        {
+            return null;
+        }
+
+        return _waypoints[index];
+    }
+
+    public void SetWaypoints(HeroWaypoint[] waypoints)
     {
         _waypoints = waypoints;
         _currentWaypointIndex = 0;
@@ -147,6 +321,8 @@ public class HeroPathfinding : MonoBehaviour
     {
         _currentWaypointIndex = 0;
         _isMoving = true;
+        _lastJumpWaypointIndex = -1;
+        _nextAllowedJumpTime = 0f;
     }
 
     public void StopMoving()
@@ -158,47 +334,5 @@ public class HeroPathfinding : MonoBehaviour
     public void ResumeMoving()
     {
         _isMoving = true;
-    }
-
-    private void StopBody()
-    {
-        if (_rb != null)
-        {
-            _rb.linearVelocity = Vector2.zero;
-        }
-    }
-
-    private Vector2 GetCurrentPosition()
-    {
-        if (_rb != null)
-        {
-            return _rb.position;
-        }
-
-        return transform.position;
-    }
-
-    private void SetCurrentPosition(Vector2 position)
-    {
-        if (_rb != null)
-        {
-            _rb.MovePosition(position);
-            return;
-        }
-
-        transform.position = position;
-    }
-
-    private void WarnIfSetupLooksWrong()
-    {
-        if (_collider2D != null && _setColliderAsTrigger && !_collider2D.isTrigger)
-        {
-            _collider2D.isTrigger = true;
-        }
-
-        if (_waypoints == null || _waypoints.Length == 0)
-        {
-            Debug.LogWarning($"{name}: no waypoints assigned. Hero will not move until HeroWayPointSetup fills them.", this);
-        }
     }
 }

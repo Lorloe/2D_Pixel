@@ -3,7 +3,6 @@ using UnityEngine;
 [DisallowMultipleComponent]
 public class HeroWayPointSetup : MonoBehaviour
 {
-    [SerializeField] private WaveConfigSO _waveConfig;
     [SerializeField] private HeroPathfinding _pathfinding;
     [SerializeField] private Transform _pathRoot;
     [SerializeField] private bool _autoCollectChildren = true;
@@ -38,13 +37,6 @@ public class HeroWayPointSetup : MonoBehaviour
             return;
         }
 
-        if (_waveConfig != null)
-        {
-            _pathfinding.SetWaypoints(_waveConfig.GetWaypoints());
-            _pathfinding.SetMoveSpeed(_waveConfig.GetEnemyMoveSpeed());
-            return;
-        }
-
         if (_pathRoot == null)
         {
             _pathfinding.SetWaypoints(null);
@@ -57,11 +49,17 @@ public class HeroWayPointSetup : MonoBehaviour
         }
 
         int childCount = _pathRoot.childCount;
-        Transform[] waypoints = new Transform[childCount];
+        HeroWaypoint[] waypoints = new HeroWaypoint[childCount];
 
         for (int i = 0; i < childCount; i++)
         {
-            waypoints[i] = _pathRoot.GetChild(i);
+            Transform child = _pathRoot.GetChild(i);
+            waypoints[i] = child.GetComponent<HeroWaypoint>();
+
+            if (waypoints[i] == null)
+            {
+                Debug.LogWarning($"{name}: Waypoint child '{child.name}' is missing HeroWaypoint component.", this);
+            }
         }
 
         _pathfinding.SetWaypoints(waypoints);
